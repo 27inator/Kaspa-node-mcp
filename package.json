@@ -1,0 +1,32 @@
+{
+  "name": "kaspa-node-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server for read-only interaction with Kaspa full nodes via wRPC JSON. Works with any rusty-kaspa node (mainnet, testnet, devnet).",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch"
+  },
+  "keywords": [
+    "kaspa",
+    "mcp",
+    "blockchain",
+    "wrpc",
+    "model-context-protocol"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "express": "^5.2.1",
+    "ws": "^8.18.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.0",
+    "typescript": "^5.7.0"
+  }
+}
