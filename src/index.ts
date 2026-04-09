@@ -1,13 +1,18 @@
 /**
  * Kaspa Node MCP Server
  *
- * Read-only MCP server for interacting with any rusty-kaspa node
- * via wRPC JSON over WebSocket.
+ * MCP server for interacting with any rusty-kaspa node via wRPC.
+ * Supports read-only queries, wallet management, and transaction submission.
  *
  * Environment variables:
- *   KASPA_ENDPOINT  - wRPC JSON WebSocket URL (default: ws://localhost:18210)
- *   TRANSPORT       - "stdio" (default) or "http"
- *   PORT            - HTTP port when using http transport (default: 3000)
+ *   KASPA_ENDPOINT       - wRPC JSON WebSocket URL (default: ws://localhost:18210)
+ *   KASPA_BORSH_ENDPOINT - wRPC Borsh WebSocket URL for wallet ops (default: ws://127.0.0.1:17210)
+ *   KASPA_MNEMONIC       - BIP39 mnemonic phrase for wallet (optional)
+ *   KASPA_PRIVATE_KEY    - Hex private key, alternative to mnemonic (optional)
+ *   KASPA_NETWORK        - Network ID: mainnet, testnet-10, testnet-11, testnet-12 (default: testnet-12)
+ *   KASPA_ACCOUNT_INDEX  - BIP44 account index (default: 0)
+ *   TRANSPORT            - "stdio" (default) or "http"
+ *   PORT                 - HTTP port when using http transport (default: 3000)
  *
  * Usage with Claude Code (stdio):
  *   KASPA_ENDPOINT=ws://localhost:18210 node dist/index.js
@@ -16,10 +21,14 @@
  *   KASPA_ENDPOINT=ws://localhost:18210 TRANSPORT=http PORT=3001 node dist/index.js
  */
 
+// WebSocket polyfill MUST be imported before kaspa-wasm
+import "./services/setup.js";
+
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { KaspaWrpcClient } from "./services/kaspa-client.js";
 import { registerTools } from "./tools/kaspa-tools.js";
+import { registerWalletTools } from "./tools/wallet-tools.js";
 
 const KASPA_ENDPOINT = process.env.KASPA_ENDPOINT ?? "ws://localhost:18210";
 
@@ -38,6 +47,7 @@ const client = new KaspaWrpcClient({
 
 // Register all tools
 registerTools(server, client);
+registerWalletTools(server, client);
 
 // ── Transport ────────────────────────────────────────────────────────
 
