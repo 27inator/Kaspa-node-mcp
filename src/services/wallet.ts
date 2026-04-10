@@ -153,5 +153,33 @@ export function getWallet(): KaspaWallet {
 
 /** Check if wallet credentials are configured (without throwing). */
 export function isWalletConfigured(): boolean {
-  return !!(process.env.KASPA_MNEMONIC || process.env.KASPA_PRIVATE_KEY);
+  return !!(process.env.KASPA_MNEMONIC || process.env.KASPA_PRIVATE_KEY || walletInstance);
+}
+
+/**
+ * Reset the wallet singleton so it can be re-initialized.
+ * Used when activating a newly generated or loaded wallet at runtime.
+ */
+export function resetWallet(): void {
+  walletInstance = null;
+}
+
+/**
+ * Activate a wallet from a mnemonic at runtime (no env var needed).
+ * Sets the mnemonic in process.env and re-initializes the singleton.
+ */
+export function activateWallet(
+  mnemonic: string,
+  network?: NetworkTypeName,
+  accountIndex?: number
+): KaspaWallet {
+  process.env.KASPA_MNEMONIC = mnemonic;
+  if (network) {
+    process.env.KASPA_NETWORK = network;
+  }
+  if (accountIndex !== undefined) {
+    process.env.KASPA_ACCOUNT_INDEX = String(accountIndex);
+  }
+  walletInstance = null;
+  return getWallet();
 }
