@@ -13,10 +13,17 @@ import { KaspaWrpcClient } from "../services/kaspa-client.js";
 import {
   getWallet,
   isWalletConfigured,
+  setWalletInstance,
   KaspaWallet,
   type NetworkTypeName,
 } from "../services/wallet.js";
 import { sendKaspa } from "../services/transaction.js";
+import {
+  saveEncryptedWallet,
+  loadEncryptedWallet,
+  walletFileExists,
+  getWalletFilePath,
+} from "../services/wallet-store.js";
 
 const { Mnemonic, Address, NetworkType } = kaspa;
 
@@ -80,9 +87,9 @@ export function registerWalletTools(
     "kaspa_get_my_address",
     {
       title: "Get My Wallet Address",
-      description: `Get the Kaspa address derived from the configured wallet (mnemonic or private key).
+      description: `Get the Kaspa address derived from the active wallet.
 
-Requires KASPA_MNEMONIC or KASPA_PRIVATE_KEY environment variable.
+Requires an active wallet — use kaspa_load_wallet to unlock a saved wallet, kaspa_generate_mnemonic to create one, or set KASPA_MNEMONIC/KASPA_PRIVATE_KEY env var.
 
 Returns:
   - address: the derived Kaspa address (kaspa: or kaspatest: prefix)
@@ -97,14 +104,16 @@ Returns:
     },
     async () => {
       if (!isWalletConfigured()) {
+        const hint = walletFileExists()
+          ? "Encrypted wallet found. Use kaspa_load_wallet to unlock."
+          : "Use kaspa_generate_mnemonic to create a wallet, or set KASPA_MNEMONIC env var.";
         return {
           content: [
             {
               type: "text" as const,
               text: JSON.stringify(
                 {
-                  error:
-                    "Wallet not configured. Set KASPA_MNEMONIC or KASPA_PRIVATE_KEY environment variable.",
+                  error: `No active wallet. ${hint}`,
                 },
                 null,
                 2
@@ -144,7 +153,7 @@ Returns:
 
 Uses the WASM Generator for KIP-9 compliant UTXO management. Connects to the node's Borsh endpoint (KASPA_BORSH_ENDPOINT, default ws://127.0.0.1:17210) for UTXO fetching and submission.
 
-Requires KASPA_MNEMONIC or KASPA_PRIVATE_KEY environment variable.
+Requires an active wallet — use kaspa_load_wallet, kaspa_generate_mnemonic, or KASPA_MNEMONIC env var.
 
 Args:
   - to: recipient Kaspa address
@@ -185,14 +194,16 @@ Returns:
     },
     async ({ to, amount, priorityFee, payload }) => {
       if (!isWalletConfigured()) {
+        const hint = walletFileExists()
+          ? "Encrypted wallet found. Use kaspa_load_wallet to unlock."
+          : "Use kaspa_generate_mnemonic to create a wallet, or set KASPA_MNEMONIC env var.";
         return {
           content: [
             {
               type: "text" as const,
               text: JSON.stringify(
                 {
-                  error:
-                    "Wallet not configured. Set KASPA_MNEMONIC or KASPA_PRIVATE_KEY environment variable.",
+                  error: `No active wallet. ${hint}`,
                 },
                 null,
                 2
@@ -256,9 +267,9 @@ Returns:
     "kaspa_generate_mnemonic",
     {
       title: "Generate New Mnemonic",
-      description: `Generate a new BIP39 mnemonic phrase and derive the corresponding Kaspa wallet address. Use this to create a new wallet.
+      description: `Generate a new BIP39 mnemonic phrase and derive the corresponding Kaspa wallet address. The wallet is auto-activated for this session.
 
-The generated mnemonic can then be set as KASPA_MNEMONIC to use with this MCP server.
+Use kaspa_save_wallet to encrypt and persist it for future sessions.
 
 Args:
   - wordCount: 12 or 24 words (default: 24)
@@ -293,6 +304,7 @@ Returns:
       const mnemonic = Mnemonic.random(words);
       const phrase = mnemonic.phrase;
       const wallet = KaspaWallet.fromMnemonic(phrase, net, 0);
+      setWalletInstance(wallet);
 
       return {
         content: [
@@ -303,8 +315,9 @@ Returns:
                 mnemonic: phrase,
                 address: wallet.getAddress(),
                 network: net,
+                activated: true,
                 warning:
-                  "IMPORTANT: Save this mnemonic securely. It cannot be recovered if lost. Never share it with anyone.",
+                  "IMPORTANT: Save this mnemonic securely — it cannot be recovered if lost. Use kaspa_save_wallet to encrypt and store it for future sessions.",
               },
               null,
               2
@@ -362,6 +375,159 @@ Returns:
                 null,
                 2
               ),
+            },
+          ],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ── Save Wallet (Encrypted) ──────────────────────────────────────────
+
+  server.registerTool(
+    "kaspa_save_wallet",
+    {
+      title: "Save Wallet (Encrypted)",
+      description: `Encrypt the active wallet's mnemonic with AES-256-GCM and save to ~/.kaspa-mcp/wallet.enc (chmod 600).
+
+Key derivation: scrypt (N=65536, r=8, p=1). Overwrites any existing wallet file.
+
+Requires an active wallet with a mnemonic (from kaspa_generate_mnemonic or KASPA_MNEMONIC env var). Wallets loaded from a raw private key cannot be saved.
+
+Next session, use kaspa_load_wallet to decrypt and activate.`,
+      inputSchema: {
+        password: z
+          .string()
+          .min(1)
+          .describe("Password to encrypt the wallet file"),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ password }) => {
+      try {
+        if (!isWalletConfigured()) {
+          throw new Error(
+            "No active wallet. Use kaspa_generate_mnemonic to create one first."
+          );
+        }
+
+        const wallet = getWallet();
+        const mnemonic = wallet.getMnemonic();
+        if (!mnemonic) {
+          throw new Error(
+            "Cannot save: wallet was loaded from a private key, not a mnemonic. " +
+              "Only mnemonic-based wallets can be saved."
+          );
+        }
+
+        saveEncryptedWallet(
+          mnemonic,
+          password,
+          wallet.getNetworkId(),
+          wallet.getAccountIndex()
+        );
+
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(
+                {
+                  success: true,
+                  path: getWalletFilePath(),
+                  network: wallet.getNetworkId(),
+                  address: wallet.getAddress(),
+                  message:
+                    "Wallet encrypted and saved. Use kaspa_load_wallet to unlock in future sessions.",
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : String(error);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({ error: message }, null, 2),
+            },
+          ],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ── Load Wallet (Decrypt) ────────────────────────────────────────────
+
+  server.registerTool(
+    "kaspa_load_wallet",
+    {
+      title: "Load Wallet (Decrypt)",
+      description: `Decrypt the wallet file at ~/.kaspa-mcp/wallet.enc and activate it for this session.
+
+After loading, all wallet tools (kaspa_get_my_address, kaspa_send_transaction, etc.) are ready to use.
+
+The wallet file must have been previously created with kaspa_save_wallet.`,
+      inputSchema: {
+        password: z
+          .string()
+          .min(1)
+          .describe("Password used when the wallet was saved"),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ password }) => {
+      try {
+        const { mnemonic, network, accountIndex } =
+          loadEncryptedWallet(password);
+        const wallet = KaspaWallet.fromMnemonic(
+          mnemonic,
+          network as NetworkTypeName,
+          accountIndex
+        );
+        setWalletInstance(wallet);
+
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(
+                {
+                  success: true,
+                  address: wallet.getAddress(),
+                  network: wallet.getNetworkId(),
+                  message: "Wallet unlocked and ready.",
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : String(error);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({ error: message }, null, 2),
             },
           ],
           isError: true,

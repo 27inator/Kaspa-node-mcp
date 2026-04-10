@@ -1,24 +1,24 @@
 /**
  * Kaspa Node MCP Server
  *
- * MCP server for interacting with any rusty-kaspa node via wRPC.
+ * MCP server for interacting with any rusty-kaspa node via wRPC Borsh.
  * Supports read-only queries, wallet management, and transaction submission.
+ * Network-agnostic: works with mainnet, testnet-10, testnet-11, testnet-12, devnet.
  *
  * Environment variables:
- *   KASPA_ENDPOINT       - wRPC JSON WebSocket URL (default: ws://localhost:18210)
- *   KASPA_BORSH_ENDPOINT - wRPC Borsh WebSocket URL for wallet ops (default: ws://127.0.0.1:17210)
+ *   KASPA_ENDPOINT       - wRPC Borsh WebSocket URL (default: ws://127.0.0.1:17210)
+ *   KASPA_NETWORK        - Network ID: mainnet, testnet-10, testnet-11, testnet-12 (optional, auto-detected)
  *   KASPA_MNEMONIC       - BIP39 mnemonic phrase for wallet (optional)
  *   KASPA_PRIVATE_KEY    - Hex private key, alternative to mnemonic (optional)
- *   KASPA_NETWORK        - Network ID: mainnet, testnet-10, testnet-11, testnet-12 (default: testnet-12)
  *   KASPA_ACCOUNT_INDEX  - BIP44 account index (default: 0)
  *   TRANSPORT            - "stdio" (default) or "http"
  *   PORT                 - HTTP port when using http transport (default: 3000)
  *
  * Usage with Claude Code (stdio):
- *   KASPA_ENDPOINT=ws://localhost:18210 node dist/index.js
+ *   KASPA_ENDPOINT=ws://127.0.0.1:17210 node dist/index.js
  *
  * Usage with OpenClaw (http):
- *   KASPA_ENDPOINT=ws://localhost:18210 TRANSPORT=http PORT=3001 node dist/index.js
+ *   KASPA_ENDPOINT=ws://127.0.0.1:17210 TRANSPORT=http PORT=3001 node dist/index.js
  */
 
 // WebSocket polyfill MUST be imported before kaspa-wasm
@@ -29,36 +29,45 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { KaspaWrpcClient } from "./services/kaspa-client.js";
 import { registerTools } from "./tools/kaspa-tools.js";
 import { registerWalletTools } from "./tools/wallet-tools.js";
+import { walletFileExists } from "./services/wallet-store.js";
+import { isWalletConfigured } from "./services/wallet.js";
 
-const KASPA_ENDPOINT = process.env.KASPA_ENDPOINT ?? "ws://localhost:18210";
+const KASPA_ENDPOINT = process.env.KASPA_ENDPOINT ?? "ws://127.0.0.1:17210";
+const KASPA_NETWORK = process.env.KASPA_NETWORK;
 
 const server = new McpServer({
   name: "kaspa-node-mcp-server",
-  version: "1.0.0",
+  version: "2.0.0",
 });
 
 const client = new KaspaWrpcClient({
   endpoint: KASPA_ENDPOINT,
+  ...(KASPA_NETWORK ? { networkId: KASPA_NETWORK } : {}),
   connectTimeoutMs: 10000,
   requestTimeoutMs: 30000,
-  autoReconnect: true,
-  reconnectDelayMs: 3000,
 });
 
 // Register all tools
 registerTools(server, client);
 registerWalletTools(server, client);
 
+// Wallet status on startup
+if (isWalletConfigured()) {
+  console.error("[kaspa-mcp] Wallet configured from environment variables.");
+} else if (walletFileExists()) {
+  console.error("[kaspa-mcp] Encrypted wallet found. Use kaspa_load_wallet to unlock.");
+} else {
+  console.error("[kaspa-mcp] No wallet configured. Use kaspa_generate_mnemonic or set KASPA_MNEMONIC.");
+}
+
 // ── Transport ────────────────────────────────────────────────────────
 
 async function runStdio(): Promise<void> {
-  // Connect to Kaspa node first
-  console.error(`[kaspa-mcp] Connecting to Kaspa node at ${KASPA_ENDPOINT}...`);
-  await client.connect();
-  console.error(`[kaspa-mcp] Connected. Starting stdio transport.`);
-
+  // Start stdio transport immediately so Claude Code sees the server.
+  // Kaspa node connection happens lazily on first tool call (see KaspaWrpcClient.request).
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  console.error(`[kaspa-mcp] stdio transport ready. Kaspa node connection is lazy (${KASPA_ENDPOINT}).`);
 
   // Handle shutdown
   process.on("SIGINT", async () => {

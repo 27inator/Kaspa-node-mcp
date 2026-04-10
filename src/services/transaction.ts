@@ -20,7 +20,7 @@ export interface SendResult {
 const CONNECT_TIMEOUT_MS = 30_000;
 
 function getBorshEndpoint(): string {
-  return process.env.KASPA_BORSH_ENDPOINT ?? "ws://127.0.0.1:17210";
+  return process.env.KASPA_BORSH_ENDPOINT ?? process.env.KASPA_ENDPOINT ?? "ws://127.0.0.1:17210";
 }
 
 function connectWithTimeout(

@@ -56,6 +56,8 @@ export class KaspaWallet {
   private privateKey: kaspa.PrivateKey;
   private keypair: kaspa.Keypair;
   private network: NetworkTypeName;
+  private _mnemonic?: string;
+  private _accountIndex: number = 0;
 
   private constructor(
     privateKey: kaspa.PrivateKey,
@@ -82,7 +84,10 @@ export class KaspaWallet {
   ): KaspaWallet {
     if (!phrase) throw new Error("Mnemonic phrase is required");
     const privateKey = derivePrivateKeyFromMnemonic(phrase, accountIndex);
-    return new KaspaWallet(privateKey, network);
+    const wallet = new KaspaWallet(privateKey, network);
+    wallet._mnemonic = phrase;
+    wallet._accountIndex = accountIndex;
+    return wallet;
   }
 
   getAddress(): string {
@@ -99,6 +104,14 @@ export class KaspaWallet {
 
   getNetworkId(): string {
     return this.network;
+  }
+
+  getMnemonic(): string | undefined {
+    return this._mnemonic;
+  }
+
+  getAccountIndex(): number {
+    return this._accountIndex;
   }
 }
 
@@ -151,7 +164,17 @@ export function getWallet(): KaspaWallet {
   return walletInstance;
 }
 
-/** Check if wallet credentials are configured (without throwing). */
+/** Activate a wallet at runtime (e.g. from encrypted file). */
+export function setWalletInstance(wallet: KaspaWallet): void {
+  walletInstance = wallet;
+}
+
+/** Clear the active wallet. */
+export function clearWalletInstance(): void {
+  walletInstance = null;
+}
+
+/** Check if a wallet is active or configured (without throwing). */
 export function isWalletConfigured(): boolean {
-  return !!(process.env.KASPA_MNEMONIC || process.env.KASPA_PRIVATE_KEY);
+  return !!(walletInstance || process.env.KASPA_MNEMONIC || process.env.KASPA_PRIVATE_KEY);
 }
