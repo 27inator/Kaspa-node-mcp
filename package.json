@@ -1,7 +1,7 @@
 {
   "name": "kaspa-node-mcp-server",
   "version": "2.0.0",
-  "description": "MCP server for interacting with Kaspa full nodes via wRPC. Supports read-only queries, wallet management, and transaction submission. Works with any rusty-kaspa node including TN12.",
+  "description": "MCP server for Kaspa blockchain via wRPC Borsh. Read-only queries, BIP39/BIP44 wallet with AES-256-GCM encrypted persistence, transaction submission with payload support, and KPM anchor verification. Works with any rusty-kaspa node.",
   "main": "dist/index.js",
   "type": "module",
   "scripts": {

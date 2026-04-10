@@ -1,9 +1,13 @@
 /**
  * Wallet and transaction MCP tools.
  *
- * These tools require KASPA_MNEMONIC or KASPA_PRIVATE_KEY to be configured.
- * They provide wallet address derivation, transaction sending, fee estimation,
- * and mnemonic generation.
+ * Wallet can be activated via:
+ *   1. kaspa_load_wallet(password) — decrypts ~/.kaspa-mcp/wallet.enc
+ *   2. kaspa_generate_mnemonic — creates and auto-activates a new wallet
+ *   3. KASPA_MNEMONIC or KASPA_PRIVATE_KEY environment variables
+ *
+ * Tools: address derivation, mnemonic generation, encrypted wallet
+ * save/load, transaction sending, and fee estimation.
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";

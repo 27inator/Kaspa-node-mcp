@@ -2,13 +2,21 @@
  * Kaspa Node MCP Server
  *
  * MCP server for interacting with any rusty-kaspa node via wRPC Borsh.
- * Supports read-only queries, wallet management, and transaction submission.
- * Network-agnostic: works with mainnet, testnet-10, testnet-11, testnet-12, devnet.
+ * 17 tools: read-only blockchain queries, BIP39/BIP44 wallet management
+ * with AES-256-GCM encrypted persistence, transaction submission with
+ * payload support, and KPM anchor verification.
+ *
+ * Network-agnostic: mainnet, testnet-10, testnet-11, testnet-12, devnet.
+ *
+ * Wallet options (pick one):
+ *   1. Encrypted file: kaspa_generate_mnemonic → kaspa_save_wallet(password)
+ *      Next session: kaspa_load_wallet(password). No env vars needed.
+ *   2. Environment: KASPA_MNEMONIC or KASPA_PRIVATE_KEY
  *
  * Environment variables:
  *   KASPA_ENDPOINT       - wRPC Borsh WebSocket URL (default: ws://127.0.0.1:17210)
- *   KASPA_NETWORK        - Network ID: mainnet, testnet-10, testnet-11, testnet-12 (optional, auto-detected)
- *   KASPA_MNEMONIC       - BIP39 mnemonic phrase for wallet (optional)
+ *   KASPA_NETWORK        - Network ID (optional, auto-detected from node)
+ *   KASPA_MNEMONIC       - BIP39 mnemonic phrase (optional if using encrypted wallet)
  *   KASPA_PRIVATE_KEY    - Hex private key, alternative to mnemonic (optional)
  *   KASPA_ACCOUNT_INDEX  - BIP44 account index (default: 0)
  *   TRANSPORT            - "stdio" (default) or "http"
