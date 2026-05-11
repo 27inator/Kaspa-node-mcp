@@ -136,16 +136,24 @@ export class KaspaWrpcClient {
 
     const hasParams = Object.keys(params).length > 0;
 
-    const result = await Promise.race([
-      fn.call(this.rpc, hasParams ? params : undefined),
-      new Promise<never>((_, reject) =>
-        setTimeout(
-          () => reject(new Error(`Request ${method} timed out after ${this.config.requestTimeoutMs}ms`)),
-          this.config.requestTimeoutMs,
-        )
-      ),
-    ]);
-
-    return toPlainObject(result) as Record<string, unknown>;
+    // Track the timeout timer explicitly so we can clear it on a fast
+    // successful RPC; otherwise it lingers up to requestTimeoutMs after
+    // each call and pins the event loop, delaying process exit. Same
+    // pattern as connect() uses; this is the per-request counterpart.
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      const result = await Promise.race([
+        fn.call(this.rpc, hasParams ? params : undefined),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error(`Request ${method} timed out after ${this.config.requestTimeoutMs}ms`)),
+            this.config.requestTimeoutMs,
+          );
+        }),
+      ]);
+      return toPlainObject(result) as Record<string, unknown>;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 }

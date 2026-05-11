@@ -263,10 +263,10 @@ Ten test files at the repo root. Each spawns its own state and cleans up. Run th
 npm test
 ```
 
-This invokes `run-tests.mjs`, which runs each suite in dependency order and **halts on first failure** (so a later integration suite never reports green over dirty state). For an ad-hoc subset:
+`npm test`'s `pretest` step runs `tsc` first so a fresh clone (where `dist/` is gitignored) builds before suites import from it. The runner (`run-tests.mjs`) executes each suite in dependency order and **halts on first failure** so a later integration suite never reports green over dirty state. For an ad-hoc subset:
 
 ```bash
-node test-http-security.mjs   # single suite
+npm run build && node test-http-security.mjs   # single suite
 ```
 
 What each covers:
