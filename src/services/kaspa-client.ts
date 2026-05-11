@@ -52,6 +52,10 @@ export class KaspaWrpcClient {
   private rpc: kaspa.RpcClient;
   private config: KaspaClientConfig & { connectTimeoutMs: number; requestTimeoutMs: number };
   private connected = false;
+  // Mutex so concurrent connect() calls (eager warm-up + lazy first request)
+  // collapse into a single underlying rpc.connect({}). Without this, two
+  // callers can race on the same WASM RpcClient.
+  private connectPromise: Promise<void> | null = null;
 
   constructor(config: KaspaClientConfig) {
     this.config = {
@@ -72,20 +76,35 @@ export class KaspaWrpcClient {
 
   async connect(): Promise<void> {
     if (this.connected) return;
+    if (this.connectPromise) return this.connectPromise;
 
-    await Promise.race([
-      this.rpc.connect({}),
-      new Promise<never>((_, reject) =>
-        setTimeout(
-          () => reject(new Error(
-            `Connection to ${this.config.endpoint} timed out after ${this.config.connectTimeoutMs}ms`
-          )),
-          this.config.connectTimeoutMs,
-        )
-      ),
-    ]);
-    this.connected = true;
-    console.error(`[kaspa-mcp] Connected to ${this.config.endpoint} (Borsh)`);
+    this.connectPromise = (async () => {
+      // Track the timeout timer explicitly so we can clear it on a fast
+      // successful connect; otherwise it lingers and pins the event loop
+      // until the timeout fires.
+      let timer: NodeJS.Timeout | undefined;
+      try {
+        await Promise.race([
+          this.rpc.connect({}),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(
+              () => reject(new Error(
+                `Connection to ${this.config.endpoint} timed out after ${this.config.connectTimeoutMs}ms`
+              )),
+              this.config.connectTimeoutMs,
+            );
+          }),
+        ]);
+        this.connected = true;
+        console.error(`[kaspa-mcp] Connected to ${this.config.endpoint} (Borsh)`);
+      } finally {
+        if (timer) clearTimeout(timer);
+        // Clear regardless of outcome so a failed connect doesn't permanently
+        // pin a rejected promise; the next caller gets to try again.
+        this.connectPromise = null;
+      }
+    })();
+    return this.connectPromise;
   }
 
   async disconnect(): Promise<void> {
@@ -117,16 +136,24 @@ export class KaspaWrpcClient {
 
     const hasParams = Object.keys(params).length > 0;
 
-    const result = await Promise.race([
-      fn.call(this.rpc, hasParams ? params : undefined),
-      new Promise<never>((_, reject) =>
-        setTimeout(
-          () => reject(new Error(`Request ${method} timed out after ${this.config.requestTimeoutMs}ms`)),
-          this.config.requestTimeoutMs,
-        )
-      ),
-    ]);
-
-    return toPlainObject(result) as Record<string, unknown>;
+    // Track the timeout timer explicitly so we can clear it on a fast
+    // successful RPC; otherwise it lingers up to requestTimeoutMs after
+    // each call and pins the event loop, delaying process exit. Same
+    // pattern as connect() uses; this is the per-request counterpart.
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      const result = await Promise.race([
+        fn.call(this.rpc, hasParams ? params : undefined),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error(`Request ${method} timed out after ${this.config.requestTimeoutMs}ms`)),
+            this.config.requestTimeoutMs,
+          );
+        }),
+      ]);
+      return toPlainObject(result) as Record<string, unknown>;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 }

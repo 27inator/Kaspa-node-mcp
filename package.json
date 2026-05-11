@@ -7,7 +7,9 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "pretest": "tsc",
+    "test": "node run-tests.mjs"
   },
   "keywords": [
     "kaspa",
