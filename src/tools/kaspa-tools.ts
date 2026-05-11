@@ -9,6 +9,11 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { KaspaWrpcClient } from "../services/kaspa-client.js";
 import { parseKpmPayload } from "../services/kpm-payload.js";
+import { validateKaspaAddress } from "../services/address-validator.js";
+import {
+  kaspaAddressLooseSchema,
+  hashHexSchema,
+} from "../validation.js";
 import type {
   GetInfoResponse,
   GetServerInfoResponse,
@@ -139,10 +144,7 @@ Returns:
   - block.verboseData: includes transactionIds, isChainBlock, selectedParentHash, mergeSetBlues/Reds
   - block.transactions: full transaction objects (only if includeTransactions=true)`,
       inputSchema: {
-        hash: z.string()
-          .length(64, "Block hash must be exactly 64 hex characters")
-          .regex(/^[0-9a-f]+$/, "Block hash must be lowercase hex")
-          .describe("Block hash (64-char lowercase hex)"),
+        hash: hashHexSchema.describe("Block hash (64-char lowercase hex)"),
         includeTransactions: z.boolean()
           .default(false)
           .describe("Include full transaction data (can be large)"),
@@ -183,9 +185,9 @@ Returns:
   - balance: balance in sompi (1 KAS = 100,000,000 sompi)
   - balanceKas: balance formatted in KAS`,
       inputSchema: {
-        address: z.string()
-          .min(10, "Address too short")
-          .describe("Kaspa address (kaspa: or kaspatest: prefix)"),
+        address: kaspaAddressLooseSchema.describe(
+          "Kaspa address (kaspa: or kaspatest: prefix). Checksum is verified server-side."
+        ),
       },
       annotations: {
         readOnlyHint: true,
@@ -195,6 +197,10 @@ Returns:
       },
     },
     async ({ address }) => {
+      // Checksum check before we forward the value to the node — gives the
+      // model a clean validation error instead of an opaque RPC failure.
+      validateKaspaAddress(address);
+
       // Some node versions return empty for getBalanceByAddress,
       // so we fall back to summing UTXOs
       try {
@@ -261,9 +267,9 @@ Returns:
   - utxoEntry.blockDaaScore: DAA score of the block containing this UTXO
   - utxoEntry.isCoinbase: whether this is a coinbase output`,
       inputSchema: {
-        addresses: z.array(z.string().min(10))
-          .min(1, "At least one address required")
-          .max(100, "Maximum 100 addresses per query")
+        addresses: z.array(kaspaAddressLooseSchema)
+          .min(1, "at least one address required")
+          .max(100, "maximum 100 addresses per query")
           .describe("Array of Kaspa addresses"),
       },
       annotations: {
@@ -274,6 +280,10 @@ Returns:
       },
     },
     async ({ addresses }) => {
+      // Validate every address upfront so a single bad checksum produces a
+      // single clean error, not a partial RPC response.
+      for (const a of addresses) validateKaspaAddress(a);
+
       const data = (await client.request("getUtxosByAddresses", {
         addresses,
       })) as unknown as GetUtxosByAddressesResponse;
@@ -316,14 +326,8 @@ Returns:
   - transaction: full transaction object if found
   - kpmPayload: parsed KPM anchor data if the transaction contains a KPM payload`,
       inputSchema: {
-        blockHash: z.string()
-          .length(64, "Block hash must be 64 hex chars")
-          .regex(/^[0-9a-f]+$/, "Must be lowercase hex")
-          .describe("Block hash to search in"),
-        transactionId: z.string()
-          .length(64, "Transaction ID must be 64 hex chars")
-          .regex(/^[0-9a-f]+$/, "Must be lowercase hex")
-          .describe("Transaction ID to find"),
+        blockHash: hashHexSchema.describe("Block hash to search in"),
+        transactionId: hashHexSchema.describe("Transaction ID to find"),
       },
       annotations: {
         readOnlyHint: true,
@@ -413,10 +417,7 @@ Returns:
   - blockDaaScore: DAA score of that block
   - kpmPayload: parsed KPM payload if present`,
       inputSchema: {
-        transactionId: z.string()
-          .length(64, "Transaction ID must be 64 hex chars")
-          .regex(/^[0-9a-f]+$/, "Must be lowercase hex")
-          .describe("Transaction ID to search for"),
+        transactionId: hashHexSchema.describe("Transaction ID to search for"),
         maxBlocks: z.number()
           .int()
           .min(1)
@@ -531,17 +532,9 @@ Returns:
   - hash: the 32-byte hash from the on-chain payload
   - hashMatch: whether expectedHash matches (if provided)`,
       inputSchema: {
-        blockHash: z.string()
-          .length(64, "Block hash must be 64 hex chars")
-          .regex(/^[0-9a-f]+$/, "Must be lowercase hex")
-          .describe("Block hash from KPM event record"),
-        transactionId: z.string()
-          .length(64, "Transaction ID must be 64 hex chars")
-          .regex(/^[0-9a-f]+$/, "Must be lowercase hex")
-          .describe("kaspa_txid from KPM event record"),
-        expectedHash: z.string()
-          .length(64, "Expected hash must be 64 hex chars")
-          .regex(/^[0-9a-f]+$/, "Must be lowercase hex")
+        blockHash: hashHexSchema.describe("Block hash from KPM event record"),
+        transactionId: hashHexSchema.describe("kaspa_txid from KPM event record"),
+        expectedHash: hashHexSchema
           .optional()
           .describe("Expected event hash or merkle root to verify against (optional)"),
       },
